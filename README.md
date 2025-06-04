@@ -29,8 +29,26 @@
 
 ## 🏁 Getting Started
 
-1. Download **`PlayPort.exe`** from [Releases](#)
+1. Download **`PlayPort.exe`** from [Releases](https://github.com/Synthfax/PlayPort/releases)  
 2. Open it — you're ready to go!
+
+---
+
+## 🚀 Creating Your First Server
+
+1. Click **"Create Server"** tab  
+2. Enter a unique server name  
+3. Select your preferred server software  
+4. Choose a version from the dropdown  
+   - *For Fabric/Quilt: Enter Minecraft version*  
+5. Set RAM allocation (default: 2048MB)  
+6. **Important:** Always click the **Fetch Versions** button before creating your server to load the latest available versions.  
+7. Click **"Create Server"** and watch the magic happen!  
+
+### Managing Servers
+- 🟢 **Run**: Launch existing servers with one click  
+- 📂 **Open Folder**: Access server files instantly  
+- ❌ **Delete**: Remove servers you no longer need  
 
 ---
 
@@ -48,8 +66,8 @@ Distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND.
 ## 🤝 Contributing & Support
 
 Found a bug? Have a feature request?  
-🔗 [Open an Issue](https://github.com/PlayPort/issues)  
-💻 [Contribute Code](https://github.com/PlayPort/pulls)  
+🔗 [Open an Issue](https://github.com/Synthfax/PlayPort/issues)  
+💻 [Contribute Code](https://github.com/Synthfax/PlayPort/pulls)  
 
 ---
 
