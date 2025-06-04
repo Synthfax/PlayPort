@@ -1,58 +1,56 @@
-# PlayPort
+# 🎮 PlayPort - Minecraft Server Manager
 
-**PlayPort** is an easy-to-use app that helps you set up your Minecraft server files quickly with just a few clicks — no complicated steps, less hassle!
-
----
-
-## Features
-
-- Automatically downloads and sets up Minecraft server files  
-- Supports a variety of server software options  
-- Simple and beginner-friendly  
+**PlayPort** is your one-click solution for setting up Minecraft servers! Our intuitive Windows GUI makes server creation effortless — no commands, no hassle, just point-and-click simplicity.
 
 ---
 
-## Supported Server Softwares
+## ✨ Features
 
-- Vanilla  
-- Spigot  
-- Paper  
-- Purpur  
-- Pufferfish  
-- Folia  
-- BungeeCord  
-- Velocity
-- Waterfall 
-- Nukkit  
-- PocketMine-MP  
-- Forge  
-- Quilt  
-- NeoForge  
-- Fabric  
+- 🚀 **One-Click Setup** - Create servers in seconds with our beautiful interface  
+- 📦 **Wide Software Support** - All major server types included  
+- 🎨 **Themed Interface** - Sleek dark theme with red accents  
+- 📊 **Real-Time Logging** - Watch the setup process live  
+- 🖥️ **Windows Optimized** - Designed specifically for Windows users  
 
 ---
 
-## Getting Started
+## 🛠️ Supported Server Types
 
-1. Download the app and run it.  
-2. Select **Create Server**.  
-3. Enter your server name.  
-4. Choose the server software you want.  
-5. Select the server software version.  
-6. If you picked **Quilt** or **Fabric**, choose the Minecraft version.  
-7. Sit back and let PlayPort create your server automatically!  
-
----
-
-## License
-
-PlayPort is licensed under the **Apache License 2.0**.  
-Feel free to use, modify, and share the code according to the license terms.
+| Vanilla | Modded | Proxy | Bedrock |
+|---------|--------|-------|---------|
+| ✅ Vanilla | ✅ Forge | ✅ BungeeCord | ✅ Nukkit |
+| ✅ Spigot | ✅ Fabric | ✅ Waterfall | ✅ PocketMine-MP |
+| ✅ Paper | ✅ Quilt | ✅ Velocity | |
+| ✅ Purpur | ✅ NeoForge | | |
+| ✅ Pufferfish | | | |
+| ✅ Folia | | | |
 
 ---
 
-If you want to contribute or report issues, check out the repo and drop a message!
+## 🏁 Getting Started
+
+1. Download **`PlayPort.exe`** from [Releases](#)
+2. Open it — you're ready to go!
 
 ---
 
-*Made by Synthfax*
+## ⚖️ License
+
+Copyright 2025 Synthfax
+
+Licensed under the Apache License, Version 2.0;  
+you may not use this file except in compliance with the License.  
+
+Distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND.
+
+---
+
+## 🤝 Contributing & Support
+
+Found a bug? Have a feature request?  
+🔗 [Open an Issue](https://github.com/PlayPort/issues)  
+💻 [Contribute Code](https://github.com/PlayPort/pulls)  
+
+---
+
+**🎨 Crafted by Synthfax**
