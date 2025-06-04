@@ -18,18 +18,18 @@
 
 | Vanilla | Modded | Proxy | Bedrock |
 |---------|--------|-------|---------|
-| ✅ Vanilla | ✅ Forge | ✅ BungeeCord | ✅ Nukkit |
-| ✅ Spigot | ✅ Fabric | ✅ Waterfall | ✅ PocketMine-MP |
-| ✅ Paper | ✅ Quilt | ✅ Velocity | |
-| ✅ Purpur | ✅ NeoForge | | |
-| ✅ Pufferfish | | | |
-| ✅ Folia | | | |
+| Vanilla | Forge | BungeeCord | Nukkit |
+| Spigot | Fabric | Waterfall | PocketMine-MP |
+| Paper | Quilt | Velocity | |
+| Purpur | NeoForge | | |
+| Pufferfish | | | |
+| Folia | | | |
 
 ---
 
 ## 🏁 Getting Started
 
-1. Download **`PlayPort.exe`** from [Releases](https://github.com/Synthfax/PlayPort/releases)  
+1. Download **`playport.exe`** from [Releases](https://github.com/Synthfax/PlayPort/releases)  
 2. Open it — you're ready to go!
 
 ---
