@@ -7,11 +7,18 @@ import re
 import json
 import xml.etree.ElementTree as ET
 from bs4 import BeautifulSoup
+import tkinter as tk
+from tkinter import ttk, messagebox, scrolledtext, filedialog
+from tkinter.font import Font
+from threading import Thread
+from queue import Queue
+
+from PIL import Image, ImageTk
+import ctypes
 
 # --- Global Configurations and Data ---
 
 # Define a base directory for all servers relative to the script's location
-# This will be initialized correctly in main() based on whether it's frozen (PyInstaller) or not.
 SERVERS_DIR = Path("./servers") 
 
 # List of supported server software options for user selection
@@ -22,59 +29,753 @@ SOFTWARE_OPTIONS = [
 ]
 
 # Dictionary mapping software types to their API/download URLs
-# Comments indicate whether the URL is a direct template or requires further resolution.
 versions_urls = {
-    "vanilla": "https://launchermeta.mojang.com/mc/game/version_manifest.json", # Requires multiple API calls to find server JAR URL.
-    "paper": "https://api.papermc.io/v2/projects/paper", # Requires API call to get latest build number.
-    "folia": "https://api.papermc.io/v2/projects/folia", # Requires API call to get latest build number.
-    "velocity": "https://api.papermc.io/v2/projects/velocity", # Requires API call to get latest build number.
-    "waterfall": "https://api.papermc.io/v2/projects/waterfall", # Requires API call to get latest build number.
-    "bungeecord": "https://ci.md-5.net/job/BungeeCord/api/json?tree=builds[number]", # Requires API call to get build numbers.
-    "nukkit": "https://ci.opencollab.dev/job/NukkitX/job/Nukkit/job/master/lastSuccessfulBuild/artifact/target/nukkit-1.0-SNAPSHOT.jar", # Static URL for the latest snapshot.
-    "forge": "https://files.minecraftforge.net/maven/net/minecraftforge/forge/maven-metadata.xml", # Requires XML parsing.
-    "pocketmine-mp": "https://api.github.com/repos/pmmp/PocketMine-MP/releases", # Requires API call to find the .phar asset URL. Note: Changed key to match SOFTWARE_OPTIONS.
-    "fabric": "https://meta.fabricmc.net/v2/versions/loader", # Requires API call to get loader versions.
-    "neoforge": "https://maven.neoforged.net/releases/net/neoforged/neoforge/maven-metadata.xml", # Requires XML parsing.
-    "quilt": "https://meta.quiltmc.org/v3/versions/installer", # Requires API call to get installer versions.
-    "spigot": "https://hub.spigotmc.org/versions/", # Requires HTML parsing.
-    "purpur": "https://api.purpurmc.org/v2/purpur/", # Requires API call to get versions.
-    "pufferfish": "https://ci.pufferfish.host/view/all/api/json", # Requires multiple API calls to resolve artifact URL.
+    "vanilla": "https://launchermeta.mojang.com/mc/game/version_manifest.json",
+    "paper": "https://api.papermc.io/v2/projects/paper",
+    "folia": "https://api.papermc.io/v2/projects/folia",
+    "velocity": "https://api.papermc.io/v2/projects/velocity",
+    "waterfall": "https://api.papermc.io/v2/projects/waterfall",
+    "bungeecord": "https://ci.md-5.net/job/BungeeCord/api/json?tree=builds[number]",
+    "nukkit": "https://ci.opencollab.dev/job/NukkitX/job/Nukkit/job/master/lastSuccessfulBuild/artifact/target/nukkit-1.0-SNAPSHOT.jar",
+    "forge": "https://files.minecraftforge.net/maven/net/minecraftforge/forge/maven-metadata.xml",
+    "pocketmine-mp": "https://api.github.com/repos/pmmp/PocketMine-MP/releases",
+    "fabric": "https://meta.fabricmc.net/v2/versions/installer",
+    "neoforge": "https://maven.neoforged.net/releases/net/neoforged/neoforge/maven-metadata.xml",
+    "quilt": "https://meta.quiltmc.org/v3/versions/installer",
+    "spigot": "https://hub.spigotmc.org/versions/",
+    "purpur": "https://api.purpurmc.org/v2/purpur/",
+    "pufferfish": "https://ci.pufferfish.host/view/all/api/json",
 }
 
 # Dummy versions for fallback if API calls fail
 DUMMY_VERSIONS = [f"1.{i}" for i in range(100, 0, -1)]
 
+# --- GUI Application Class ---
+
+class PlayPort(tk.Tk):
+    def __init__(self):
+        super().__init__()
+        self.title("PlayPort - Minecraft Server Manager")
+        self.geometry("1000x700")
+        self.minsize(900, 600)
+        self.configure(bg="#121212")
+        
+        # Set window icon (using Windows API for better icon support)
+        try:
+            self.iconbitmap(default=self.resource_path("icon.ico"))
+        except:
+            pass
+        
+        # Make window DPI aware for better scaling on high-DPI displays
+        try:
+            ctypes.windll.shcore.SetProcessDpiAwareness(1)
+        except:
+            pass
+        
+        # Configure style
+        self.style = ttk.Style()
+        self.style.theme_use('clam')
+        
+        # Custom colors
+        self.bg_color = "#121212"
+        self.fg_color = "#e0e0e0"
+        self.accent_color = "#d32f2f"
+        self.secondary_color = "#424242"
+        self.highlight_color = "#ff5252"
+        
+        # Configure styles
+        self.style.configure('TFrame', background=self.bg_color)
+        self.style.configure('TLabel', background=self.bg_color, foreground=self.fg_color, font=('Segoe UI', 10))
+        self.style.configure('TButton', 
+                           background=self.secondary_color, 
+                           foreground=self.fg_color,
+                           borderwidth=1,
+                           relief='raised',
+                           font=('Segoe UI', 10))
+        self.style.map('TButton',
+                      background=[('active', self.accent_color), ('pressed', self.highlight_color)],
+                      foreground=[('active', 'white'), ('pressed', 'white')])
+        self.style.configure('TEntry', 
+                            fieldbackground=self.secondary_color, 
+                            foreground=self.fg_color,
+                            insertcolor=self.fg_color,
+                            font=('Segoe UI', 10))
+        self.style.configure('TCombobox', 
+                           fieldbackground=self.secondary_color, 
+                           foreground=self.fg_color,
+                           selectbackground=self.accent_color,
+                           font=('Segoe UI', 10))
+        self.style.configure('TNotebook', background=self.bg_color, borderwidth=0)
+        self.style.configure('TNotebook.Tab', 
+                            background=self.secondary_color, 
+                            foreground=self.fg_color,
+                            padding=[10, 5],
+                            font=('Segoe UI', 10, 'bold'))
+        self.style.map('TNotebook.Tab',
+                     background=[('selected', self.accent_color)],
+                     foreground=[('selected', 'white')])
+        self.style.configure('Treeview', 
+                           background=self.secondary_color, 
+                           foreground=self.fg_color,
+                           fieldbackground=self.secondary_color,
+                           font=('Segoe UI', 10))
+        self.style.map('Treeview',
+                     background=[('selected', self.accent_color)],
+                     foreground=[('selected', 'white')])
+        self.style.configure('Vertical.TScrollbar', 
+                           background=self.secondary_color,
+                           troughcolor=self.bg_color,
+                           arrowcolor=self.fg_color)
+        self.style.configure('Horizontal.TScrollbar', 
+                           background=self.secondary_color,
+                           troughcolor=self.bg_color,
+                           arrowcolor=self.fg_color)
+        self.style.configure('TProgressbar',
+                           troughcolor=self.bg_color,
+                           background=self.accent_color,
+                           lightcolor=self.highlight_color,
+                           darkcolor=self.accent_color)
+        
+        # Configure fonts
+        self.title_font = Font(family="Segoe UI", size=16, weight="bold")
+        self.subtitle_font = Font(family="Segoe UI", size=12, weight="bold")
+        self.normal_font = Font(family="Segoe UI", size=10)
+        
+        # Queue for thread-safe GUI updates
+        self.queue = Queue()
+        
+        # Initialize UI
+        self.create_widgets()
+        
+        # Check for updates periodically
+        self.after(100, self.process_queue)
+        
+        # Determine the base directory for servers
+        if getattr(sys, 'frozen', False):
+            CURRENT_DIR = Path(sys.executable).parent.resolve()
+        else:
+            CURRENT_DIR = Path(__file__).parent.resolve()
+        
+        global SERVERS_DIR
+        SERVERS_DIR = CURRENT_DIR / "servers"
+        SERVERS_DIR.mkdir(exist_ok=True)
+        
+        # Load server list
+        self.load_server_list()
+    
+    def resource_path(self, relative_path):
+        """ Get absolute path to resource, works for dev and for PyInstaller """
+        try:
+            # PyInstaller creates a temp folder and stores path in _MEIPASS
+            base_path = sys._MEIPASS
+        except Exception:
+            base_path = os.path.abspath(".")
+
+        return os.path.join(base_path, relative_path)
+    
+    def create_widgets(self):
+        """Create all GUI widgets."""
+        # Main container
+        self.main_frame = ttk.Frame(self)
+        self.main_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+        
+        # Header
+        self.header_frame = ttk.Frame(self.main_frame)
+        self.header_frame.pack(fill=tk.X, pady=(0, 10))
+        
+        # Logo and title
+        self.logo_frame = ttk.Frame(self.header_frame)
+        self.logo_frame.pack(side=tk.LEFT, padx=5)
+        
+        # Try to load logo image
+        try:
+            logo_img = Image.open(self.resource_path("playport_logo.png"))
+            logo_img = logo_img.resize((40, 40), Image.LANCZOS)
+            self.logo = ImageTk.PhotoImage(logo_img)
+            logo_label = ttk.Label(self.logo_frame, image=self.logo, background=self.bg_color)
+            logo_label.pack(side=tk.LEFT, padx=5)
+        except:
+            pass
+        
+        self.title_label = ttk.Label(self.header_frame, 
+                                   text="PlayPort - Minecraft Server Manager", 
+                                   font=self.title_font,
+                                   foreground=self.highlight_color)
+        self.title_label.pack(side=tk.LEFT, padx=5)
+        
+        # Notebook for tabs
+        self.notebook = ttk.Notebook(self.main_frame)
+        self.notebook.pack(fill=tk.BOTH, expand=True)
+        
+        # Create Server Tab
+        self.create_server_tab()
+        
+        # Run Server Tab
+        self.run_server_tab()
+        
+        # Console Tab
+        self.console_tab()
+        
+        # Status bar
+        self.status_var = tk.StringVar()
+        self.status_var.set("Ready")
+        self.status_bar = ttk.Label(self.main_frame, 
+                                  textvariable=self.status_var,
+                                  relief=tk.SUNKEN,
+                                  anchor=tk.W,
+                                  font=self.normal_font)
+        self.status_bar.pack(fill=tk.X, pady=(5, 0))
+    
+    def create_server_tab(self):
+        """Create the 'Create Server' tab."""
+        self.create_tab = ttk.Frame(self.notebook)
+        self.notebook.add(self.create_tab, text="Create Server")
+        
+        # Form frame
+        form_frame = ttk.Frame(self.create_tab)
+        form_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+        
+        # Server Name
+        ttk.Label(form_frame, text="Server Name:", font=self.subtitle_font).grid(
+            row=0, column=0, sticky=tk.W, padx=10, pady=(10, 5))
+        self.server_name_entry = ttk.Entry(form_frame, font=self.normal_font)
+        self.server_name_entry.grid(
+            row=0, column=1, sticky=tk.EW, padx=10, pady=(10, 5), columnspan=2)
+        
+        # Server Software
+        ttk.Label(form_frame, text="Server Software:", font=self.subtitle_font).grid(
+            row=1, column=0, sticky=tk.W, padx=10, pady=5)
+        self.software_combo = ttk.Combobox(
+            form_frame, values=SOFTWARE_OPTIONS, state="readonly", font=self.normal_font)
+        self.software_combo.grid(
+            row=1, column=1, sticky=tk.EW, padx=10, pady=5, columnspan=2)
+        self.software_combo.bind("<<ComboboxSelected>>", self.on_software_select)
+        
+        # Version Selection
+        ttk.Label(form_frame, text="Version:", font=self.subtitle_font).grid(
+            row=2, column=0, sticky=tk.W, padx=10, pady=5)
+        self.version_combo = ttk.Combobox(
+            form_frame, state="readonly", font=self.normal_font)
+        self.version_combo.grid(
+            row=2, column=1, sticky=tk.EW, padx=10, pady=5)
+        
+        self.fetch_versions_btn = ttk.Button(
+            form_frame, text="Fetch Versions", command=self.fetch_versions_threaded)
+        self.fetch_versions_btn.grid(row=2, column=2, padx=10, pady=5)
+        
+        # Minecraft Version (for Fabric/Quilt)
+        self.mc_version_label = ttk.Label(
+            form_frame, text="Minecraft Version:", font=self.subtitle_font)
+        self.mc_version_entry = ttk.Entry(form_frame, font=self.normal_font)
+        
+        # RAM Allocation
+        ttk.Label(form_frame, text="RAM Allocation (MB):", font=self.subtitle_font).grid(
+            row=4, column=0, sticky=tk.W, padx=10, pady=5)
+        self.ram_entry = ttk.Entry(form_frame, font=self.normal_font)
+        self.ram_entry.grid(row=4, column=1, sticky=tk.EW, padx=10, pady=5)
+        self.ram_entry.insert(0, "2048")
+        
+        # Create Server Button
+        btn_frame = ttk.Frame(form_frame)
+        btn_frame.grid(row=5, column=0, columnspan=3, pady=20, sticky=tk.EW)
+        
+        self.create_btn = ttk.Button(
+            btn_frame, text="Create Server", command=self.create_server_threaded)
+        self.create_btn.pack(fill=tk.X, padx=10)
+        
+        # Progress bar
+        self.progress = ttk.Progressbar(
+            form_frame, orient=tk.HORIZONTAL, length=100, mode='determinate')
+        self.progress.grid(row=6, column=0, columnspan=3, sticky=tk.EW, padx=10, pady=5)
+        self.progress.grid_remove()
+        
+        # Configure grid weights
+        form_frame.grid_columnconfigure(1, weight=1)
+        form_frame.grid_rowconfigure(5, weight=1)
+    
+    def run_server_tab(self):
+        """Create the 'Run Server' tab."""
+        self.run_tab = ttk.Frame(self.notebook)
+        self.notebook.add(self.run_tab, text="Run Server")
+        
+        # Main frame
+        main_frame = ttk.Frame(self.run_tab)
+        main_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+        
+        # Server List
+        ttk.Label(main_frame, text="Available Servers:", font=self.subtitle_font).pack(
+            anchor=tk.W, padx=10, pady=(10, 5))
+        
+        # Treeview for server list with scrollbar
+        tree_frame = ttk.Frame(main_frame)
+        tree_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=5)
+        
+        self.server_tree = ttk.Treeview(tree_frame, columns=('software', 'version', 'ram'), 
+                                      selectmode='browse', show='headings')
+        self.server_tree.heading('#0', text='Name')
+        self.server_tree.heading('software', text='Software')
+        self.server_tree.heading('version', text='Version')
+        self.server_tree.heading('ram', text='RAM (MB)')
+        
+        self.server_tree.column('#0', width=200, anchor=tk.W)
+        self.server_tree.column('software', width=150, anchor=tk.W)
+        self.server_tree.column('version', width=150, anchor=tk.W)
+        self.server_tree.column('ram', width=100, anchor=tk.W)
+        
+        # Scrollbar
+        scrollbar = ttk.Scrollbar(tree_frame, orient=tk.VERTICAL, command=self.server_tree.yview)
+        self.server_tree.configure(yscrollcommand=scrollbar.set)
+        
+        # Pack widgets
+        self.server_tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+        
+        # Button frame
+        btn_frame = ttk.Frame(main_frame)
+        btn_frame.pack(fill=tk.X, padx=10, pady=10)
+        
+        # Buttons
+        self.run_btn = ttk.Button(
+            btn_frame, text="Run Server", command=self.run_server_threaded)
+        self.run_btn.pack(side=tk.LEFT, padx=5, fill=tk.X, expand=True)
+        
+        self.open_folder_btn = ttk.Button(
+            btn_frame, text="Open Folder", command=self.open_server_folder)
+        self.open_folder_btn.pack(side=tk.LEFT, padx=5, fill=tk.X, expand=True)
+        
+        self.delete_btn = ttk.Button(
+            btn_frame, text="Delete Server", command=self.delete_server)
+        self.delete_btn.pack(side=tk.LEFT, padx=5, fill=tk.X, expand=True)
+        
+        self.refresh_btn = ttk.Button(
+            btn_frame, text="Refresh List", command=self.load_server_list)
+        self.refresh_btn.pack(side=tk.LEFT, padx=5, fill=tk.X, expand=True)
+    
+    def console_tab(self):
+        """Create the console output tab."""
+        self.console_tab = ttk.Frame(self.notebook)
+        self.notebook.add(self.console_tab, text="Console")
+        
+        # Console frame
+        console_frame = ttk.Frame(self.console_tab)
+        console_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+        
+        # Console output
+        self.console = scrolledtext.ScrolledText(
+            console_frame, bg=self.secondary_color, fg=self.fg_color,
+            insertbackground=self.fg_color, font=('Consolas', 10))
+        self.console.pack(fill=tk.BOTH, expand=True)
+        self.console.configure(state='disabled')
+        
+        # Button frame
+        btn_frame = ttk.Frame(console_frame)
+        btn_frame.pack(fill=tk.X, pady=(10, 0))
+        
+        # Buttons
+        self.clear_console_btn = ttk.Button(
+            btn_frame, text="Clear Console", command=self.clear_console)
+        self.clear_console_btn.pack(side=tk.LEFT, padx=5, fill=tk.X, expand=True)
+        
+        self.copy_btn = ttk.Button(
+            btn_frame, text="Copy to Clipboard", command=self.copy_console)
+        self.copy_btn.pack(side=tk.LEFT, padx=5, fill=tk.X, expand=True)
+    
+    def on_software_select(self, event):
+        """Handle software selection change."""
+        software = self.software_combo.get()
+        self.version_combo.set('')
+        
+        # Show/hide Minecraft version field for Fabric/Quilt
+        if software.lower() in ["fabric", "quilt"]:
+            self.mc_version_label.grid(row=3, column=0, sticky=tk.W, padx=10, pady=5)
+            self.mc_version_entry.grid(row=3, column=1, sticky=tk.EW, padx=10, pady=5, columnspan=2)
+        else:
+            self.mc_version_label.grid_remove()
+            self.mc_version_entry.grid_remove()
+    
+    def fetch_versions_threaded(self):
+        """Start version fetching in a separate thread."""
+        software = self.software_combo.get()
+        if not software:
+            messagebox.showwarning("Warning", "Please select a server software first.")
+            return
+        
+        self.fetch_versions_btn.config(state=tk.DISABLED)
+        self.version_combo.config(state=tk.DISABLED)
+        self.status_var.set(f"Fetching versions for {software}...")
+        
+        Thread(target=self.fetch_versions, args=(software,), daemon=True).start()
+    
+    def fetch_versions(self, software):
+        """Fetch available versions for the selected software."""
+        try:
+            versions = fetch_versions(software.lower())
+            
+            if not versions:
+                self.queue.put(("error", f"No versions found for {software}."))
+                return
+            
+            self.queue.put(("set_versions", versions))
+            self.queue.put(("status", f"Found {len(versions)} versions for {software}"))
+        except Exception as e:
+            self.queue.put(("error", f"Error fetching versions: {str(e)}"))
+        finally:
+            self.queue.put(("enable_fetch_btn",))
+    
+    def create_server_threaded(self):
+        """Start server creation in a separate thread."""
+        # Validate inputs
+        name = self.server_name_entry.get().strip()
+        if not name:
+            messagebox.showwarning("Warning", "Please enter a server name.")
+            return
+        
+        if (SERVERS_DIR / name).exists():
+            messagebox.showwarning("Warning", f"A server named '{name}' already exists.")
+            return
+        
+        software = self.software_combo.get()
+        if not software:
+            messagebox.showwarning("Warning", "Please select server software.")
+            return
+        
+        version = self.version_combo.get()
+        if not version and software.lower() != "nukkit":
+            messagebox.showwarning("Warning", "Please select a version.")
+            return
+        
+        ram = self.ram_entry.get().strip()
+        if not ram.isdigit() or int(ram) <= 0:
+            messagebox.showwarning("Warning", "Please enter a valid RAM allocation (positive number).")
+            return
+        
+        mc_version = None
+        if software.lower() in ["fabric", "quilt"]:
+            mc_version = self.mc_version_entry.get().strip()
+            if not mc_version:
+                messagebox.showwarning("Warning", "Please enter a Minecraft version for Fabric/Quilt.")
+                return
+        
+        # Disable UI during creation
+        self.create_btn.config(state=tk.DISABLED)
+        self.server_name_entry.config(state=tk.DISABLED)
+        self.software_combo.config(state=tk.DISABLED)
+        self.version_combo.config(state=tk.DISABLED)
+        self.mc_version_entry.config(state=tk.DISABLED)
+        self.ram_entry.config(state=tk.DISABLED)
+        self.fetch_versions_btn.config(state=tk.DISABLED)
+        
+        # Show progress bar
+        self.progress.grid()
+        self.progress["value"] = 0
+        self.status_var.set(f"Creating {name} server...")
+        
+        # Start creation in a thread
+        Thread(target=self.create_server, args=(name, software, version, mc_version, ram), daemon=True).start()
+    
+    def create_server(self, name, software, version, mc_version, ram):
+        """Create the server in a background thread."""
+        try:
+            server_path = SERVERS_DIR / name
+            server_path.mkdir(parents=True, exist_ok=True)
+            
+            # Accept EULA automatically
+            eula_path = server_path / "eula.txt"
+            eula_path.write_text("eula=true\n")
+            self.queue.put(("log", "EULA accepted automatically."))
+            
+            # Update progress
+            self.queue.put(("progress", 10))
+            
+            # Download server file
+            self.queue.put(("log", f"Downloading {software} server file..."))
+            jar_or_phar_path = download_server_jar(software.lower(), version, server_path)
+            
+            if not jar_or_phar_path:
+                self.queue.put(("error", "Failed to download server file."))
+                return
+            
+            self.queue.put(("progress", 40))
+            self.queue.put(("log", f"Downloaded server file to {jar_or_phar_path}"))
+            
+            server_exec_path = jar_or_phar_path
+            
+            # Handle installers
+            if software.lower() in ["forge", "fabric", "neoforge", "quilt"]:
+                self.queue.put(("log", f"Running {software} installer..."))
+                installed_server_path = run_installer(jar_or_phar_path, server_path, mc_version)
+                
+                if installed_server_path is False:
+                    self.queue.put(("error", f"Failed to run {software} installer."))
+                    return
+                elif installed_server_path is not True:
+                    server_exec_path = installed_server_path
+                    self.queue.put(("log", f"Installer completed. Server executable: {server_exec_path}"))
+                
+                self.queue.put(("progress", 70))
+            
+            # Create start script
+            self.queue.put(("log", "Creating start script..."))
+            start_script = None
+            
+            if server_exec_path.suffix.lower() == ".jar":
+                if software.lower() == "neoforge":
+                    start_script = create_start_script_neoforge(server_path, version, ram)
+                else:
+                    start_script = create_start_script(server_path, server_exec_path, ram)
+            elif server_exec_path.suffix.lower() == ".phar":
+                start_script = create_start_script_pocketmine(server_path, server_exec_path)
+            
+            if not start_script:
+                self.queue.put(("log", "Warning: Failed to create start script."))
+            
+            self.queue.put(("progress", 90))
+            
+            # Write metadata
+            (server_path / "server.properties").write_text(
+                f"server-name={name}\nsoftware={software}\nversion={version if version else 'latest'}\nram={ram}MB\n"
+            )
+            
+            self.queue.put(("progress", 100))
+            self.queue.put(("log", f"Server '{name}' setup complete!"))
+            self.queue.put(("success", f"Server '{name}' created successfully!"))
+            
+            # Open folder
+            self.queue.put(("open_folder", server_path))
+            
+            # Start server
+            self.queue.put(("start_server", server_path))
+            
+            # Refresh server list
+            self.queue.put(("load_server_list",))
+        
+        except Exception as e:
+            self.queue.put(("error", f"An error occurred while creating server: {str(e)}"))
+        finally:
+            self.queue.put(("enable_create_ui",))
+    
+    def run_server_threaded(self):
+        """Start server in a separate thread."""
+        selected = self.server_tree.focus()
+        if not selected:
+            messagebox.showwarning("Warning", "Please select a server first.")
+            return
+        
+        server_name = self.server_tree.item(selected, "text")
+        server_path = SERVERS_DIR / server_name
+        
+        self.run_btn.config(state=tk.DISABLED)
+        self.status_var.set(f"Starting {server_name} server...")
+        
+        Thread(target=self.run_server, args=(server_path,), daemon=True).start()
+    
+    def run_server(self, server_path):
+        """Run the selected server."""
+        try:
+            start_script = None
+            if (server_path / "start.bat").exists():
+                start_script = server_path / "start.bat"
+            elif (server_path / "start.sh").exists():
+                start_script = server_path / "start.sh"
+            
+            if not start_script:
+                self.queue.put(("error", "No start script found in server folder!"))
+                return
+            
+            # Open folder
+            self.queue.put(("open_folder", server_path))
+            
+            # Start server
+            self.queue.put(("start_server", server_path))
+            
+            self.queue.put(("log", f"Started server: {server_path.name}"))
+            self.queue.put(("status", f"Running {server_path.name} server"))
+        
+        except Exception as e:
+            self.queue.put(("error", f"Error starting server: {str(e)}"))
+        finally:
+            self.queue.put(("enable_run_btn",))
+    
+    def open_server_folder(self):
+        """Open the selected server's folder."""
+        selected = self.server_tree.focus()
+        if not selected:
+            messagebox.showwarning("Warning", "Please select a server first.")
+            return
+        
+        server_name = self.server_tree.item(selected, "text")
+        server_path = SERVERS_DIR / server_name
+        
+        try:
+            os.startfile(server_path)
+            self.status_var.set(f"Opened folder: {server_name}")
+        except Exception as e:
+            messagebox.showerror("Error", f"Could not open folder: {str(e)}")
+    
+    def delete_server(self):
+        """Delete the selected server."""
+        selected = self.server_tree.focus()
+        if not selected:
+            messagebox.showwarning("Warning", "Please select a server first.")
+            return
+        
+        server_name = self.server_tree.item(selected, "text")
+        
+        if not messagebox.askyesno("Confirm", f"Are you sure you want to delete server '{server_name}'?"):
+            return
+        
+        server_path = SERVERS_DIR / server_name
+        
+        try:
+            import shutil
+            shutil.rmtree(server_path)
+            self.load_server_list()
+            self.status_var.set(f"Deleted server: {server_name}")
+        except Exception as e:
+            messagebox.showerror("Error", f"Could not delete server: {str(e)}")
+    
+    def load_server_list(self):
+        """Load the list of existing servers."""
+        self.server_tree.delete(*self.server_tree.get_children())
+        
+        servers = [f for f in SERVERS_DIR.iterdir() if f.is_dir()]
+        if not servers:
+            self.status_var.set("No servers found")
+            return
+        
+        for server in servers:
+            server_properties = server / "server.properties"
+            software = "Unknown"
+            version = "Unknown"
+            ram = "Unknown"
+            
+            if server_properties.exists():
+                try:
+                    props = {}
+                    with open(server_properties, 'r') as f:
+                        for line in f:
+                            if '=' in line:
+                                key, value = line.strip().split('=', 1)
+                                props[key] = value
+                    
+                    software = props.get('software', 'Unknown')
+                    version = props.get('version', 'Unknown')
+                    ram = props.get('ram', 'Unknown')
+                except:
+                    pass
+            
+            self.server_tree.insert('', 'end', text=server.name, 
+                                  values=(software, version, ram))
+        
+        self.status_var.set(f"Found {len(servers)} servers")
+    
+    def clear_console(self):
+        """Clear the console output."""
+        self.console.config(state='normal')
+        self.console.delete(1.0, tk.END)
+        self.console.config(state='disabled')
+    
+    def copy_console(self):
+        """Copy console content to clipboard."""
+        self.clipboard_clear()
+        self.clipboard_append(self.console.get(1.0, tk.END))
+        self.status_var.set("Console content copied to clipboard")
+    
+    def log_message(self, message):
+        """Add a message to the console."""
+        self.console.config(state='normal')
+        self.console.insert(tk.END, message + "\n")
+        self.console.see(tk.END)
+        self.console.config(state='disabled')
+    
+    def process_queue(self):
+        """Process messages from the queue to update the GUI safely."""
+        while not self.queue.empty():
+            try:
+                msg = self.queue.get_nowait()
+                
+                if msg[0] == "log":
+                    self.log_message(msg[1])
+                elif msg[0] == "error":
+                    messagebox.showerror("Error", msg[1])
+                    self.log_message(f"ERROR: {msg[1]}")
+                elif msg[0] == "success":
+                    messagebox.showinfo("Success", msg[1])
+                    self.log_message(f"SUCCESS: {msg[1]}")
+                elif msg[0] == "status":
+                    self.status_var.set(msg[1])
+                elif msg[0] == "set_versions":
+                    self.version_combo.config(state='normal')
+                    self.version_combo['values'] = msg[1]
+                    self.version_combo.config(state='readonly')
+                elif msg[0] == "enable_fetch_btn":
+                    self.fetch_versions_btn.config(state=tk.NORMAL)
+                    self.version_combo.config(state='readonly')
+                elif msg[0] == "enable_create_ui":
+                    self.create_btn.config(state=tk.NORMAL)
+                    self.server_name_entry.config(state=tk.NORMAL)
+                    self.software_combo.config(state='readonly')
+                    self.version_combo.config(state='readonly')
+                    self.mc_version_entry.config(state=tk.NORMAL)
+                    self.ram_entry.config(state=tk.NORMAL)
+                    self.fetch_versions_btn.config(state=tk.NORMAL)
+                    self.progress.grid_remove()
+                elif msg[0] == "enable_run_btn":
+                    self.run_btn.config(state=tk.NORMAL)
+                elif msg[0] == "progress":
+                    self.progress["value"] = msg[1]
+                elif msg[0] == "open_folder":
+                    os.startfile(msg[1])
+                elif msg[0] == "start_server":
+                    self.start_server(msg[1])
+                elif msg[0] == "load_server_list":
+                    self.load_server_list()
+                
+            except Exception as e:
+                self.log_message(f"Error processing queue message: {str(e)}")
+        
+        self.after(100, self.process_queue)
+    
+    def start_server(self, server_path):
+        """Start the server process."""
+        start_script = None
+        if (server_path / "start.bat").exists():
+            start_script = server_path / "start.bat"
+        elif (server_path / "start.sh").exists():
+            start_script = server_path / "start.sh"
+        
+        if not start_script:
+            self.log_message("ERROR: No start script found in server folder!")
+            return
+        
+        try:
+            subprocess.Popen(
+                f'start cmd /k "{start_script}"', 
+                shell=True, 
+                cwd=server_path,
+                creationflags=subprocess.CREATE_NEW_CONSOLE
+            )
+        except Exception as e:
+            self.log_message(f"ERROR: Failed to start server: {str(e)}")
+
 # --- Utility Functions ---
 
 def version_key(v):
-    """
-    Helper function to sort version strings numerically.
-    Handles versions with multiple dots and hyphens by attempting to convert
-    each segment to an integer, falling back to 0 for non-numeric parts.
-    """
-    parts = re.split(r'[.-]', v) # Split by both dot and hyphen
+    """Helper function to sort version strings numerically."""
+    parts = re.split(r'[.-]', v)
     numeric_parts = []
     for part in parts:
         try:
             numeric_parts.append(int(part))
         except ValueError:
-            numeric_parts.append(0) # Treat non-numeric parts as 0 for sorting purposes
+            numeric_parts.append(0)
     return tuple(numeric_parts)
 
 def fetch_versions(software: str) -> list:
-    """
-    Fetches available versions for a given server software from its API.
-
-    Args:
-        software (str): The name of the server software (e.g., "paper", "forge").
-
-    Returns:
-        list: A list of available version strings, or DUMMY_VERSIONS if fetching fails.
-    """
+    """Fetches available versions for a given server software from its API."""
     software = software.lower()
     url = versions_urls.get(software)
 
-    # Specific handling for Nukkit: always return "Latest" as the only option
     if software == "nukkit":
         return ["Latest"]
 
@@ -83,18 +784,17 @@ def fetch_versions(software: str) -> list:
         return DUMMY_VERSIONS
 
     try:
-        res = requests.get(url, timeout=10) # Added timeout for robustness
-        res.raise_for_status() # Raise an exception for HTTP errors
+        res = requests.get(url, timeout=10)
+        res.raise_for_status()
 
         if software in ["forge", "neoforge"]:
             root = ET.fromstring(res.content)
             versions = [v.text for v in root.findall("./versioning/versions/version")]
-            # Sort versions numerically and take the latest 100
             versions.sort(key=version_key, reverse=True)
             return versions[:100]
-        
+
         if software == "spigot":
-            version_pattern = re.compile(r"^\d+(\.\d+){1,2}$") # Matches versions like 1.16.5 or 1.20
+            version_pattern = re.compile(r"^\d+(\.\d+){1,2}$")
             soup = BeautifulSoup(res.text, "html.parser")
             versions = []
             for a in soup.find_all("a", href=True):
@@ -109,29 +809,22 @@ def fetch_versions(software: str) -> list:
         data = res.json()
 
         if software == "vanilla":
-            # Filter for release versions and take the latest 100
             return [v["id"] for v in data["versions"] if v["type"] == "release"][:100]
         if software == "pufferfish":
-            # Pufferfish lists jobs, which are versions
-            return [job["name"] for job in data.get("jobs", [])][::-1][:100] # Reverse to get latest first
+            return [job["name"] for job in data.get("jobs", [])][::-1][:100]
         if software == "purpur":
-            # Purpur lists versions directly
-            return data.get("versions", [])[::-1][:100] # Reverse to get latest first
+            return data.get("versions", [])[::-1][:100]
         if software in ["fabric", "quilt"]:
-            # Fabric/Quilt list versions
             return [v["version"] for v in data][:100]
-        if software == "pocketmine-mp": # Corrected key
+        if software == "pocketmine-mp":
             versions = []
-            # Find releases that have a .phar asset
             for release in data:
                 if any(asset["name"].endswith(".phar") for asset in release.get("assets", [])):
                     versions.append(release.get("tag_name", "unknown"))
             return versions[:100]
         if software == "bungeecord":
-            # BungeeCord lists build numbers
             return [str(build['number']) for build in data.get('builds', [])][:100]
-        
-        # Default for PaperMC-based APIs (Paper, Folia, Velocity, Waterfall)
+
         return data.get("versions", [])[::-1][:100]
 
     except requests.exceptions.RequestException as req_err:
@@ -140,8 +833,8 @@ def fetch_versions(software: str) -> list:
         print(f"Error parsing response for {software}: {parse_err}")
     except Exception as e:
         print(f"An unexpected error occurred while fetching versions for {software}: {e}")
-    
-    return DUMMY_VERSIONS # Return dummy versions on any failure
+
+    return DUMMY_VERSIONS
 
 def download_server_jar(server_type: str, version: str = None, dest_folder: Path = Path(".")):
     """
@@ -164,13 +857,6 @@ def download_server_jar(server_type: str, version: str = None, dest_folder: Path
         if server_type not in versions_urls:
             print(f"Error: Unknown server type '{server_type}'. Please choose from: {', '.join(versions_urls.keys())}")
             return False
-
-        # Custom print message for Nukkit
-        if server_type == "nukkit":
-            print(f"Downloading latest Nukkit server jar...")
-        else:
-            print(f"Attempting to download {server_type} server file...")
-
 
         download_url = None
         file_name = None
@@ -223,12 +909,12 @@ def download_server_jar(server_type: str, version: str = None, dest_folder: Path
             res = requests.get(info_url, timeout=10)
             res.raise_for_status()
             data = res.json()
-            
+
             latest_build = data.get("builds", {}).get("latest")
             if not latest_build:
                 print(f"No latest build found for Purpur version {version}")
                 return False
-            
+
             download_url = f"https://api.purpurmc.org/v2/purpur/{version}/{latest_build}/download"
             file_name = f"purpur_server.{version}.jar"
 
@@ -258,11 +944,10 @@ def download_server_jar(server_type: str, version: str = None, dest_folder: Path
 
         # --- Logic for Fabric Installer ---
         elif server_type == "fabric":
-            installer_url = versions_urls["fabric"] # This URL returns installer versions, not loader versions.
+            installer_url = versions_urls["fabric"]
             res = requests.get(installer_url, timeout=10)
             res.raise_for_status()
             installers = res.json()
-            # The API returns a list of installer versions, usually latest is first
             installer_version = installers[0]["version"] 
             download_url = f"https://maven.fabricmc.net/net/fabricmc/fabric-installer/{installer_version}/fabric-installer-{installer_version}.jar"
             file_name = f"fabric-installer-{installer_version}.jar"
@@ -296,7 +981,7 @@ def download_server_jar(server_type: str, version: str = None, dest_folder: Path
 
         # --- Logic for Nukkit Server ---
         elif server_type == "nukkit":
-            download_url = versions_urls["nukkit"] # Static URL for the latest snapshot.
+            download_url = versions_urls["nukkit"]
             file_name = f"nukkit.jar"
 
         # --- Logic for BungeeCord Server ---
@@ -316,7 +1001,7 @@ def download_server_jar(server_type: str, version: str = None, dest_folder: Path
             builds_res = requests.get(builds_url, timeout=10)
             builds_res.raise_for_status()
             builds_data = builds_res.json()
-            latest_build = builds_data["builds"][-1] # Get the latest build number.
+            latest_build = builds_data["builds"][-1]
 
             file_name = f"{server_type}-{version}-{latest_build}.jar"
             download_url = f"https://api.papermc.io/v2/projects/{server_type}/versions/{version}/builds/{latest_build}/downloads/{file_name}"
@@ -343,18 +1028,14 @@ def download_server_jar(server_type: str, version: str = None, dest_folder: Path
             download_url = server_jar_url
             file_name = f"minecraft_server.{version}.jar"
 
-        # If no download URL or file name was determined for a recognized type
         if not download_url or not file_name:
             print(f"Error: Could not determine download URL or file name for '{server_type}'.")
             return False
 
         jar_path = dest_folder / file_name
-        # The specific print message for Nukkit is already handled above.
-        # For other types, this general message is appropriate.
-        if server_type != "nukkit":
-            print(f"Downloading {server_type} server file to {jar_path} from {download_url}...")
+        print(f"Downloading {server_type} server file to {jar_path} from {download_url}...")
 
-        with requests.get(download_url, stream=True, timeout=300) as r: # Increased timeout for large files
+        with requests.get(download_url, stream=True, timeout=300) as r:
             r.raise_for_status()
             with open(jar_path, "wb") as f:
                 for chunk in r.iter_content(chunk_size=8192):
@@ -393,20 +1074,16 @@ def run_installer(installer_path: Path, target_folder: Path, mc_version: str = N
 
     command = ["java", "-jar", str(installer_path)]
     software_name = installer_path.stem.lower()
-    
+
     # Determine the expected output executable path
     output_exec_path = None
 
     if "forge" in software_name:
         command.append("--installServer")
-        # Forge installer typically creates a forge-<mc_version>-<forge_version>.jar or similar
-        # We'll try to find it after the install.
-        output_exec_path = target_folder # Will search for the largest JAR in this folder later
+        output_exec_path = target_folder
     elif "neoforge" in software_name:
         command.append("--installServer")
-        # NeoForge installer does not produce a new executable JAR, it sets up files.
-        # We return True to indicate success, not a path.
-        pass # No output_exec_path needed for NeoForge's return value
+        pass
     elif "fabric" in software_name:
         if not mc_version:
             print("Error: Minecraft version is required for Fabric installer.")
@@ -428,36 +1105,31 @@ def run_installer(installer_path: Path, target_folder: Path, mc_version: str = N
 
     print(f"Running installer: {' '.join(command)} in {target_folder}...")
     try:
-        # Removed printing stdout and stderr to remove all outputs from installers
         subprocess.run(
             command,
             cwd=target_folder,
-            check=True, # Raise CalledProcessError for non-zero exit codes
-            capture_output=True, # Still capture output, but won't print it
-            text=True # Decode stdout/stderr as text
+            check=True,
+            capture_output=True,
+            text=True
         )
         print(f"{software_name.replace('_installer', '').title()} server setup completed.")
-        
-        # Special handling for NeoForge: installation is successful, but no new JAR to return
-        if "neoforge" in software_name:
-            return True # Indicate success without returning a path
 
-        # For Forge, find the actual executable JAR after installation
+        if "neoforge" in software_name:
+            return True
+
         if "forge" in software_name:
             candidate_jars = [f for f in target_folder.glob("*.jar") if "installer" not in f.name.lower()]
             if candidate_jars:
-                # Pick the largest JAR that is not the installer itself
                 actual_forge_jar = max(candidate_jars, key=os.path.getsize)
                 print(f"Detected Forge executable: {actual_forge_jar.name}")
                 return actual_forge_jar
             else:
                 print("Warning: Could not find a clear Forge executable JAR after installation.")
-                return False # Indicate failure to find executable
-        
-        return output_exec_path # Return the expected executable path for others
+                return False
+
+        return output_exec_path
     except subprocess.CalledProcessError as e:
         print(f"Error running {software_name.replace('_installer', '').title()} installer: {e}")
-        # Removed printing STDOUT/STDERR from error output as well
         return False
     except Exception as e:
         print(f"An unexpected error occurred while running {software_name.replace('_installer', '').title()} installer: {e}")
@@ -468,397 +1140,48 @@ def run_installer(installer_path: Path, target_folder: Path, mc_version: str = N
 def create_start_script(dest_folder: Path, server_exec_path: Path, ram_mb: str) -> Path:
     """Creates a generic start script for JAR files."""
     ram_mb_int = int(ram_mb)
-    is_windows = sys.platform == "win32"
-    script_name = "start.bat" if is_windows else "start.sh"
+    script_name = "start.bat"
     script_path = dest_folder / script_name
 
-    content = f'java -Xmx{ram_mb_int}M -Xms{ram_mb_int}M -jar "{server_exec_path.name}" nogui'
-    if is_windows:
-        content += '\npause' # Keep window open on Windows
-    else:
-        content = f"#!/bin/bash\n{content}\n" # Add shebang for Linux/macOS
+    content = f'@echo off\njava -Xmx{ram_mb_int}M -Xms{ram_mb_int}M -jar "{server_exec_path.name}" nogui\npause'
 
     script_path.write_text(content)
-    if not is_windows:
-        os.chmod(script_path, 0o755) # Make executable on Linux/macOS
-
     print(f"Created start script at {script_path}")
     return script_path
 
 def create_start_script_neoforge(dest_folder: Path, version: str, ram_mb: str) -> Path:
     """Creates a start script specifically for NeoForge, which uses a different launch mechanism."""
     ram_mb_int = int(ram_mb)
-    is_windows = sys.platform == "win32"
-    script_name = "start.bat" if is_windows else "start.sh"
+    script_name = "start.bat"
     script_path = dest_folder / script_name
 
-    # NeoForge uses argument files for launching
-    args_file = f"libraries/net/neoforged/neoforge/{version}/{'win_args.txt' if is_windows else 'unix_args.txt'}"
-    
-    content = f'java -Xmx{ram_mb_int}M -Xms{ram_mb_int}M @user_jvm_args.txt @{args_file} nogui'
-    if is_windows:
-        content += '\npause'
-    else:
-        content = f"#!/bin/bash\n{content}\n"
+    args_file = f"libraries/net/neoforged/neoforge/{version}/win_args.txt"
+
+    content = f'@echo off\njava -Xmx{ram_mb_int}M -Xms{ram_mb_int}M @user_jvm_args.txt @{args_file} nogui\npause'
 
     script_path.write_text(content)
-    if not is_windows:
-        os.chmod(script_path, 0o755)
-
     print(f"Created NeoForge start script at {script_path}")
     return script_path
 
 def create_start_script_pocketmine(dest_folder: Path, phar_path: Path) -> Path:
     """Creates a start script for PocketMine-MP (PHAR files)."""
-    is_windows = sys.platform == "win32"
-    script_name = "start.bat" if is_windows else "start.sh"
+    script_name = "start.bat"
     script_path = dest_folder / script_name
-    
-    # Check if PHP is installed (best effort, user might need to install it)
-    try:
-        subprocess.run(["php", "-v"], capture_output=True, check=True, timeout=5)
-    except (subprocess.CalledProcessError, FileNotFoundError, subprocess.TimeoutExpired):
-        print("Warning: PHP was not found on your system. PocketMine-MP requires PHP to run. Please install it manually.")
-    
-    content = f'php "{phar_path.name}"'
-    if is_windows:
-        content += '\npause'
-    else:
-        content = f"#!/bin/bash\n{content}\n"
-    
+
+    content = f'@echo off\nphp "{phar_path.name}"\npause'
+
     script_path.write_text(content)
-    if not is_windows:
-        os.chmod(script_path, 0o755)
-    
     print(f"Created PocketMine-MP start script at {script_path}")
     return script_path
 
 def open_folder_in_os(folder_path: Path):
-    """Opens a given folder in the OS's default file explorer."""
-    if sys.platform == "win32":
+    """Opens a given folder in Windows Explorer."""
+    try:
         os.startfile(folder_path)
-    elif sys.platform == "darwin": # macOS
-        subprocess.Popen(["open", str(folder_path)])
-    else: # Linux and other Unix-like
-        subprocess.Popen(["xdg-open", str(folder_path)]) # Common for many Linux desktops
         print(f"Opened folder: {folder_path}")
-
-# --- User Interaction Functions ---
-
-def choose_server_name() -> str | None:
-    """Prompts the user to choose a server name and ensures it's unique."""
-    while True:
-        name = input("Enter a name for your new server (or type 'cancel' to go back): ").strip()
-        if name.lower() == 'cancel':
-            return None
-        if not name:
-            print("Server name cannot be empty.")
-        elif (SERVERS_DIR / name).exists():
-            print(f"A server named '{name}' already exists. Please choose a different name.")
-        else:
-            return name
-
-def choose_software() -> str | None:
-    """Prompts the user to choose server software from a predefined list."""
-    print("\nAvailable server software:")
-    for i, option in enumerate(SOFTWARE_OPTIONS, 1):
-        print(f"[{i}] {option}")
-    print("[0] Cancel")
-    while True:
-        choice = input("Choose server software by number or name: ").strip()
-        if choice == '0':
-            return None
-        if choice.isdigit():
-            idx = int(choice) - 1
-            if 0 <= idx < len(SOFTWARE_OPTIONS):
-                return SOFTWARE_OPTIONS[idx]
-        else:
-            # Allow case-insensitive matching for names
-            for opt in SOFTWARE_OPTIONS:
-                if opt.lower() == choice.lower():
-                    return opt
-        print("Invalid choice. Please try again.")
-
-def choose_version(software_type: str) -> str | None:
-    """
-    Prompts the user to choose a version for the selected software.
-    Includes pagination for long lists of versions.
-    """
-    software_lower = software_type.lower()
-    versions = fetch_versions(software_lower)
-
-    if not versions:
-        print(f"No versions found for {software_type}.")
-        return None
-    
-    # Removed the specific print message for Nukkit here.
-    # The version list will naturally show "[1] Latest" if fetch_versions returns ["Latest"].
-
-    page = 1
-    page_size = 10
-    total_pages = (len(versions) + page_size - 1) // page_size
-
-    while True:
-        start = (page - 1) * page_size
-        end = start + page_size
-        print(f"\nVersions Page {page}/{total_pages}:")
-        for i, v in enumerate(versions[start:end], start=start + 1):
-            print(f"[{i}] {v}")
-        print("[0] Cancel")
-
-        choice = input("Choose version number, type P<page number> (e.g., P2), or '0' to cancel: ").strip()
-
-        if choice == '0':
-            return None
-        elif choice.upper().startswith("P"):
-            try:
-                new_page = int(choice[1:])
-                if 1 <= new_page <= total_pages:
-                    page = new_page
-                else:
-                    print("Page number out of range.")
-            except ValueError:
-                print("Invalid page input. Please use 'P' followed by a number (e.g., P2).")
-        else:
-            try:
-                idx = int(choice) - 1
-                if 0 <= idx < len(versions):
-                    return versions[idx]
-                else:
-                    print("Invalid version number.")
-            except ValueError:
-                print("Invalid input. Please enter a number, 'P<page number>', or '0'.")
-
-# --- Main Server Management Functions ---
-
-def create_server():
-    """Guides the user through creating a new Minecraft server."""
-    print("\n--- Create New Server ---\n")
-    name = choose_server_name()
-    if name is None: return # User cancelled
-
-    software = choose_software()
-    if software is None: return # User cancelled
-
-    version = choose_version(software)
-    # For Nukkit, version is "latest" but not used in download_server_jar directly
-    # For other types, if version is None, it means fetching failed or user didn't select.
-    if version is None and software.lower() != "nukkit":
-        print("No valid version selected. Aborting server creation.")
-        return
-    
-    mc_version = None
-    # For installers like Fabric/Quilt, we need the target Minecraft version separately
-    if software.lower() in ["fabric", "quilt"]:
-        mc_version = input("Enter the target Minecraft Version (e.g., '1.20.1') for the installer: ").strip()
-        if not mc_version:
-            print("Minecraft version is required for Fabric/Quilt installers. Aborting.")
-            return
-
-    server_path = SERVERS_DIR / name
-    # Directory is created here, after name validation
-    server_path.mkdir(parents=True, exist_ok=True)
-
-    eula_path = server_path / "eula.txt"
-    eula_path.write_text("eula=true\n")
-    print("EULA accepted automatically.")
-    
-    ram = input("Enter RAM allocation in MB (e.g., 2048): ").strip()
-    if not ram.isdigit() or int(ram) <= 0:
-        print("Invalid RAM allocation. Please enter a positive number. Aborting.")
-        return
-
-    print(f"Setting up server '{name}' with {software} version {version if version else 'latest'} and {ram}MB RAM...")
-
-    # Unified download call
-    jar_or_phar_path = download_server_jar(software.lower(), version, server_path)
-    
-    if not jar_or_phar_path:
-        print("Failed to download server file. Aborting.")
-        return
-
-    server_exec_path = jar_or_phar_path # Default executable path
-
-    # Handle installers: run the installer after download
-    if software.lower() in ["forge", "fabric", "neoforge", "quilt"]:
-        print(f"Downloaded {software} installer. Now running the installer...")
-        installed_server_path = run_installer(jar_or_phar_path, server_path, mc_version)
-        
-        # Check the return value from run_installer
-        if installed_server_path is False: # Installer failed
-            print(f"Failed to run {software} installer. Aborting.")
-            return
-        elif installed_server_path is not True: # Installer returned a new path (Forge, Fabric, Quilt)
-            server_exec_path = installed_server_path 
-        # If installed_server_path is True (for NeoForge), server_exec_path remains jar_or_phar_path, which is correct.
-
-    # Create start script based on server type
-    start_script = None
-    if server_exec_path.suffix.lower() == ".jar":
-        if software.lower() == "neoforge":
-            # For NeoForge, version is needed for the args file path in the start script
-            start_script = create_start_script_neoforge(server_path, version, ram)
-        else:
-            start_script = create_start_script(server_path, server_exec_path, ram)
-    elif server_exec_path.suffix.lower() == ".phar":
-        start_script = create_start_script_pocketmine(server_path, server_exec_path)
-    else:
-        print(f"Unknown server executable extension: {server_exec_path.suffix}, no start script created.")
-        start_script = None
-
-    if not start_script:
-        print("Failed to create start script. Server might not be runnable automatically.")
-        return
-
-    # Write metadata to server.properties
-    (server_path / "server.properties").write_text(
-        f"server-name={name}\nsoftware={software}\nversion={version if version else 'latest'}\nram={ram}MB\n"
-    )
-
-    print("Server setup complete!")
-
-    # Open the server folder
-    open_folder_in_os(server_path)
-
-    print("Starting the server...")
-
-    # Execute the start script in a new terminal
-    if sys.platform == "win32":
-        subprocess.Popen(f'start cmd /k "{start_script}"', shell=True, cwd=server_path)
-    else:
-        terminals = [
-            ["gnome-terminal", "--", "bash", "-c", f"cd '{server_path}' && ./'{start_script.name}'; exec bash"],
-            ["x-terminal-emulator", "-e", f"bash -c 'cd \"{server_path}\" && ./{start_script.name}; exec bash'"],
-            ["xterm", "-e", f"bash -c 'cd \"{server_path}\" && ./{start_script.name}; exec bash'"],
-            ["konsole", "-e", f"bash -c 'cd \"{server_path}\" && ./{start_script.name}; exec bash'"],
-            ["mate-terminal", "-e", f"bash -c 'cd \"{server_path}\" && ./{start_script.name}; exec bash'"],
-            ["lxterminal", "-e", f"bash -c 'cd \"{server_path}\" && ./{start_script.name}; exec bash'"],
-        ]
-        for term_cmd in terminals:
-            try:
-                subprocess.Popen(term_cmd, cwd=server_path) # cwd is used for some terminals, but the cd in command is more reliable
-                break
-            except FileNotFoundError:
-                continue
-        else:
-            print(f"Could not open a terminal automatically. Run the script manually: {start_script}")
-
-def list_existing_servers() -> str | None:
-    """Lists existing servers and allows the user to select one."""
-    servers = [f.name for f in SERVERS_DIR.iterdir() if f.is_dir()]
-    if not servers:
-        print("No existing servers found.")
-        return None
-
-    page = 1
-    page_size = 10
-    total_pages = (len(servers) + page_size - 1) // page_size
-
-    while True:
-        start = (page - 1) * page_size
-        end = start + page_size
-        print(f"\nServers Page {page}/{total_pages}:")
-        for i, s in enumerate(servers[start:end], start=start + 1):
-            print(f"[{i}] {s}")
-        print("[0] Cancel")
-        
-        choice = input("Choose server number to run, type P<page number> (e.g., P2), or '0' to cancel: ").strip()
-        if choice == '0':
-            return None
-        elif choice.upper().startswith("P"):
-            try:
-                new_page = int(choice[1:])
-                if 1 <= new_page <= total_pages:
-                    page = new_page
-                else:
-                    print("Page number out of range.")
-            except ValueError:
-                print("Invalid page input. Please use 'P' followed by a number (e.g., P2).")
-        else:
-            try:
-                idx = int(choice) - 1
-                if 0 <= idx < len(servers):
-                    return servers[idx]
-                else:
-                    print("Invalid server number.")
-            except ValueError:
-                print("Invalid input. Please enter a number, 'P<page number>', or '0'.")
-
-def run_server():
-    """Runs an existing Minecraft server by executing its start script."""
-    print("\n--- Run Existing Server ---\n")
-    server_name = list_existing_servers()
-    if not server_name:
-        return
-    server_path = SERVERS_DIR / server_name
-    print(f"Running server: {server_name}")
-
-    start_script = None
-    if (server_path / "start.bat").exists():
-        start_script = server_path / "start.bat"
-    elif (server_path / "start.sh").exists():
-        start_script = server_path / "start.sh"
-
-    if not start_script:
-        print("No start script found in server folder! Please create one manually.")
-        return
-
-    # Open the server folder
-    open_folder_in_os(server_path)
-
-    # Execute the start script in a new terminal
-    if sys.platform == "win32":
-        subprocess.Popen(f'start cmd /k "{start_script}"', shell=True, cwd=server_path)
-    else:
-        terminals = [
-            ["gnome-terminal", "--", "bash", "-c", f"cd '{server_path}' && ./'{start_script.name}'; exec bash"],
-            ["x-terminal-emulator", "-e", f"bash -c 'cd \"{server_path}\" && ./{start_script.name}; exec bash'"],
-            ["xterm", "-e", f"bash -c 'cd \"{server_path}\" && ./{start_script.name}; exec bash'"],
-            ["konsole", "-e", f"bash -c 'cd \"{server_path}\" && ./{start_script.name}; exec bash'"],
-            ["mate-terminal", "-e", f"bash -c 'cd \"{server_path}\" && ./{start_script.name}; exec bash'"],
-            ["lxterminal", "-e", f"bash -c 'cd \"{server_path}\" && ./{start_script.name}; exec bash'"],
-        ]
-        for term_cmd in terminals:
-            try:
-                subprocess.Popen(term_cmd, cwd=server_path)
-                break
-            except FileNotFoundError:
-                continue
-        else:
-            print(f"Could not open a terminal automatically. Run the script manually: {start_script}")
-
-# --- Main Application Loop ---
-
-def main():
-    """Main function to run the Minecraft Server Manager."""
-    global SERVERS_DIR # Ensure we modify the global variable
-
-    # Determine the base directory for servers based on execution environment
-    if getattr(sys, 'frozen', False):
-        # Running as a PyInstaller bundle
-        CURRENT_DIR = Path(sys.executable).parent.resolve()
-    else:
-        # Running as a normal Python script
-        CURRENT_DIR = Path(__file__).parent.resolve()
-
-    SERVERS_DIR = CURRENT_DIR / "servers"
-    SERVERS_DIR.mkdir(exist_ok=True) # Ensure the main servers directory exists
-
-    while True:
-        print("\n--- Minecraft Server Manager ---")
-        print("[1] Create New Server")
-        print("[2] Run Existing Server")
-        print("[3] Exit")
-        choice = input("Choose an option: ").strip()
-        if choice == "1":
-            create_server()
-        elif choice == "2":
-            run_server()
-        elif choice == "3":
-            print("Goodbye!")
-            break
-        else:
-            print("Invalid choice. Please enter 1, 2, or 3.")
+    except Exception as e:
+        print(f"Could not open folder: {str(e)}")
 
 if __name__ == "__main__":
-    main()
+    app = PlayPort()
+    app.mainloop()
